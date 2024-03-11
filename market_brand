@@ -1,0 +1,341 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+import uuid
+import sys
+from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Attr
+
+
+dynamodb = boto3.resource('dynamodb')
+market_table = dynamodb.Table('market')
+brand_table = dynamodb.Table('brand')
+products_table = dynamodb.Table('product')  
+categories_table = dynamodb.Table('product_has_membership')  
+price_table = dynamodb.Table('price')
+s3 = boto3.client('s3', region_name='eu-north-1') 
+
+
+    
+def handle_error(exception):
+    error_message = str(exception)
+    return {
+        "statusCode": 500,
+        "body": json.dumps({'error': error_message})
+    }
+    
+def create_product(data):
+    try:
+        product_data = {
+            "id": str(uuid.uuid4()),
+            "name": data['name']
+        }
+        response = products_table.put_item(Item=product_data)
+
+        return {
+            "statusCode": 200,
+            "Message":  'Product has been created successfully.'
+        }
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+
+def create_market(data):
+    try:
+        data['id'] = str(uuid.uuid4())
+        response = market_table.put_item(Item=data)
+
+        return {
+            "statusCode": 200,
+            "Meesage":  'Market has been created successfully.'
+        }
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+        
+def create_brand(data):
+    try:
+        data['id'] = str(uuid.uuid4())
+        response = brand_table.put_item(Item=data)
+
+        return {
+            "statusCode": 200,
+            "Meesage":  'Brand has been created successfully.'
+        }
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+            
+def delete_product(product):
+    try:
+        # 'products_table' üzerinden ürünü silme işlemi
+        response = products_table.delete_item(
+            Key={'id': product['id']}
+        )
+        return response
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+        
+        
+def get_brand_by_id(brand_id):
+    try:
+        response = brand_table.get_item(
+            Key={'id': brand_id}
+        )
+        brand = response.get('Item', {})
+        return brand
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+        
+def delete_brand(data):
+    try:
+        brand_id = data.get('id')
+        brand = get_brand_by_id(brand_id)
+        if not brand:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+ 'Brand not found.'
+            }
+
+        products = get_products_by_brand_id(brand_id)
+       
+
+        for product in products:
+            delete_product(product)
+        
+        prices = get_prices_by_brand_id(brand_id)
+
+        for price in prices:
+            delete_price(price)
+
+        # Log relevant information
+        print(f"Deleting brand with ID: {brand_id}")
+
+        response_brand = brand_table.delete_item(
+            Key={'id': brand_id}
+        )
+
+        # Log the response
+        print(f"Delete response: {response_brand}")
+
+        return {
+            "statusCode": 200,
+            "Meesage": 'Brand and related items deleted successfully.'
+        }
+    except Exception as e:
+        # Log the exception
+            print(f"Error in delete_brand: {e}")
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+        
+def delete_market(data):
+    try:
+        market_id = data.get('id')  
+
+        if not market_id:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+'Market ID not provided'
+            }
+
+        market = get_market_by_id(market_id)
+
+      
+
+        response_market = market_table.delete_item(
+            Key={'id': market_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "Message":'Market and related items deleted successfully'
+        }
+    except Exception as e:
+            print(f"Error in delete_brand: {e}")
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+def get_market_by_id(market_id):
+    try:
+        response = market_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('id').eq(market_id)
+        )
+        items = response.get('Items', [])
+        
+        if items:
+         
+            return items[0]
+        else:
+            return {"error": "Market not found"}
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+    
+
+def get_brand_by_id(brand_id):
+    try:
+        response = brand_table.get_item(
+            Key={'id': brand_id}
+        )
+        brand = response.get('Item', {})
+        return brand
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+        
+def get_market_by_id(market_id):
+    try:
+        response = market_table.get_item(
+            Key={'id': market_id}
+        )
+        market = response.get('Item', {})
+        return market
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+def get_prices_by_brand_id(brand_id):
+    try:
+        response = prices_table.query(
+            IndexName='brand_id',
+            KeyConditionExpression=Key('brand_id').eq(brand_id)
+        )
+        prices = response.get('Items', [])
+        return prices
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+        
+def delete_price(price):
+    try:
+        # Assuming 'prices_table' is the DynamoDB table for prices
+        response = prices_table.delete_item(
+            Key={'id': price['id']}
+        )
+        return response
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+def get_products_by_brand_id(brand_id):
+    try:
+        #  'products' tablosundan ilgili markaya ait ürünleri çekiyoruz.
+        response = products_table.query(
+            IndexName='brand_id',  
+            KeyConditionExpression=Key('brand_id').eq(brand_id)
+        )
+        products = response.get('Items', [])
+        return products
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+def update_market(data):
+    try:
+        response = market_table.update_item(
+            Key={'id': market_data['id']},
+            UpdateExpression="set market=:d",
+            ExpressionAttributeValues={':d': market_data['market']},
+            ReturnValues="UPDATED_NEW"
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": 'Market has been updated successfully.'
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+def update_brand(data):
+    try:
+        response = brand_table.update_item(
+            Key={'id': brand_data['id']},
+            UpdateExpression="set brand=:d",
+            ExpressionAttributeValues={':d': brand_data['brand']},
+            ReturnValues="UPDATED_NEW"
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": 'brand has been updated successfully.'
+        }
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
+
+
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+
+            if operation == 'create_brand':
+                return create_brand(event['arguments']['input'])
+            elif operation == 'create_market':
+                 return create_market(event['arguments']['input'])
+            elif operation == 'get_market_by_id':
+                return get_brand_id(event['arguments']['input'])
+            elif operation == 'delete_brand':
+                return delete_brand(event['arguments']['input'])
+            elif operation == 'get_brand_id':
+                return get_brand_by_id(event['arguments']['input'])
+            elif operation == 'update_brand':
+                return update_brand(event['arguments']['input'])
+            elif operation == 'update_market':
+                return update_market(event['arguments']['input'])
+            elif operation == 'delete_market':
+                return delete_market(event['arguments']['input'])
+            elif operation ==  'create_product':
+                return create_product(event['arguments']['input'])
+            else:
+                return {
+                    "statusCode": 400,
+                    "Meesage": 'error'+ 'Invalid transaction'
+                }
+
+    except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(sys.exc_info())
+            print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+            return handle_error(e)
