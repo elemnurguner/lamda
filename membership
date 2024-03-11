@@ -1,0 +1,236 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+import sys
+from datetime import datetime
+import uuid
+import hashlib
+
+
+dynamodb = boto3.resource('dynamodb')
+membership_table = dynamodb.Table('membership')
+quarter_table =dynamodb.Table ('quarter')
+
+
+
+def handle_error(exception):
+    return {
+        "statusCode": 500,
+        "body": json.dumps({'error': str(exception)})
+    }
+
+def hash_password(password):
+    # Şifreyi SHA-256 algoritmasıyla hashle
+    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+    return hashed_password
+
+def create_membership(data):
+    try:
+        if 'password' not in data or not data['password']:
+            raise ValueError("Invalid password: Password is required")
+
+        # Şifre minimum uzunluğunu kontrol et ( en az 8 karakter)
+        if len(data['password']) < 8:
+            raise ValueError("Invalid password: Password must be at least 8 characters long")
+
+        # Diğer güvenlik kontrolleri yapılabilir
+
+        # Şifreyi hashle
+        hashed_password = hash_password(data['password'])
+        data['id'] = str(uuid.uuid4())
+        data['password'] = hashed_password
+
+        # Put item işlemi gerçekleştir
+        response = membership_table.put_item(Item=data)
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'membership has been added successfully..'})
+        }
+    except Exception as e:
+        print("Error:", str(e))  # hatayı loglamak için
+        return handle_error(e)
+
+def get_membership_by_id(data):
+    try:
+        response = membership_table.get_item(
+            Key={'id': data}
+        )
+        city = response.get('Item', {})
+        return city
+    except Exception as e:
+        return handle_error(e)
+
+def update_membership(data):
+    try:
+        response = membership_table.update_item(
+            Key={'id': data['id']},
+            UpdateExpression="set data=:c",  # burda yazdigimiz test kisminda ayni olmali /
+            ExpressionAttributeValues={':c': data['membership_data']},  # test ederken  buraya dikkat et  diğer taraftada  aynı olması lazım ..
+            ReturnValues="UPDATED_NEW"
+        )
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'membership has been updated  successfully.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+def delete_membership(data):
+    try:
+        membership_id = data.get('id')
+        # İlgili admini çek
+        membership = get_membership_by_id(membership_id)
+        if not membership:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'membership not found'})
+            }
+
+        # Admini sil
+        response_membership = membership_table.delete_item(
+            Key={'id': membership_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'membership has been deleted successfully'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+def create_product_and_membership(data):
+    try:
+        required_fields = ['amount', 'brand_id', 'created_at', 'members_id', 'name', 'photo', 'price', 'weight_amount', 'weight_type', 'city_id', 'district_id', 'quarter_id']
+
+        if not all(field in data for field in required_fields):
+            return {
+                "statusCode": 400,
+                "Message": 'Hata: Gerekli alanlar eksik: {}'.format(', '.join(set(required_fields) - set(data.keys())))
+            }
+
+        product_id = str(uuid.uuid4())
+
+        data['id'] = product_id
+        data['created_at'] = datetime.now().isoformat()
+
+        # Marka, ağırlık türü ve üye kimliklerini alın veya oluşturun
+        brand_id = get_or_create_brand_id(data['brand_id'])
+        weight_type = data['weight_type']
+
+        # Ağırlık türünü ve miktarını kontrol et
+        weight_id = get_or_create_weight_id(weight_type)
+        member_id = get_or_create_member_id(data['members_id'])
+
+        # Şehir, ilçe ve mahalle kimliklerini alın veya oluşturun
+        city_id = get_or_create_city_id(data['city_id'])
+        district_id = get_or_create_district_id(data['district_id'])
+        quarter_id = get_or_create_quarter_id(data['quarter_id'])
+
+        # Product tablosuna sadece isim ve id bilgisini ekleyin
+        product_table.put_item(
+            Item={
+                'id': product_id,
+                'name': data['name'],
+                'created_at': data['created_at']
+            }
+        )
+
+        # Product Has Membership tablosuna veriyi ekleyin
+        product_has_membership_table = dynamodb.Table('product_has_membership')
+        product_has_membership_table.put_item(
+            Item={
+                'amount': data['amount'],
+                'brand_id': brand_id,
+                'created_at': data['created_at'],
+                'members_id': member_id,
+                'product_id': product_id,
+                'photo': data['photo'],
+                'price': data['price'],
+                'weight_amount': data['weight_amount'],
+                'weight_type': weight_type,
+                'city_id': city_id,
+                'district_id': district_id,
+                'quarter_id': quarter_id
+            }
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": 'Ürün ve üyelik başarıyla eklendi.'
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Hata: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+
+        return {
+            "statusCode": 500,
+            "Message": f"Hata: {str(e)}"
+        }
+        
+def load_data_to_dynamodb(event, context):
+    try:
+        if 'body' in event:
+            neighborhoods = event['body']
+
+            for neighborhood in neighborhoods:
+                quarter_id = str(uuid.uuid4())
+                # quarter_table'ı nasıl elde 
+                quarter_table.put_item(Item={
+                    'id': quarter_id,
+                    'name': neighborhood['name'],
+                    'code': neighborhood['code'],
+                })
+
+            return {
+                "statusCode": 200,
+                "body": json.dumps({'message': 'Mahalle verileri başarıyla eklendi.'})
+            }
+        else:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Geçersiz istek formatı'})
+            }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({'error': str(e)})
+        }
+
+def lambda_handler(event, context):
+    try:
+        print(event)
+        if 'to' in event:
+            to_value = event['to']
+            print(f"to_value: {to_value}")
+
+            if to_value == 'neighborhoods' and 'body' in event:
+                # Quarter eklemek için load_data_to_dynamodb fonksiyonunu çağır
+                result = load_data_to_dynamodb(event, context)
+                return result
+            elif 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+                operation = event['info']['fieldName']
+                
+            elif operation == 'create_membership':
+                    return create_membership(event['arguments']["input"])
+                    
+            elif operation == 'update_membership':
+                
+                    return update_membership(event['arguments']["input"])
+                    
+            elif operation == 'delete_membership':
+                
+                    return delete_membership(event['arguments']["input"])
+                else:
+                    return {
+                        "statusCode": 400,
+                        "body": json.dumps({'error': 'Invalid "fieldName" value for data insertion.'})
+                    }
+            else:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({'error': 'Invalid "to" value for data insertion.'})
+                }
+    except Exception as e:
+        return handle_error(e)
