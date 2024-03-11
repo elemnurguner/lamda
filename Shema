@@ -1,0 +1,238 @@
+type Admin {
+	id: ID!
+	admin_name: String
+	psw: String
+	created_at: AWSTimestamp
+	status: String
+}
+
+input AdminInput {
+	admin_name: String
+	psw: String
+	status: String
+}
+
+type Brand {
+	id: ID!
+	brand_name: String
+}
+
+input BrandInput {
+	brand_name: String
+}
+
+input CalculatePercentageIncreaseInput {
+	city_id: String!
+	district_id: String!
+	quarter_id: String!
+	product_id: String!
+	members_id: String!
+	current_price: Float!
+}
+
+type Category @aws_cognito_user_pools {
+	id: ID!
+	name: String
+	parent_id: String
+}
+
+input CategoryInput @aws_cognito_user_pools
+@aws_api_key {
+	name: String
+	parent_id: String
+}
+
+type City {
+	id: ID!
+	city_no: String
+	city_name: String
+	districts: [District]
+}
+
+input CityInput {
+	city_no: String
+	city_name: String
+}
+
+type District {
+	id: ID!
+	district_name: String
+	city_id: ID
+}
+
+input DistrictInput {
+	district_name: String!
+	city_id: ID
+}
+
+type Floornumber {
+	id: ID!
+	floornumber_no: String
+	quarter_id: ID
+	quarter: Quarter
+}
+
+input FloornumberInput {
+	floornumber_no: String
+	quarter_id: ID
+}
+
+type Market {
+	id: ID!
+	marketname: String
+}
+
+input MarketInput {
+	marketname: String
+}
+
+type Membership @aws_api_key
+@aws_cognito_user_pools {
+	id: ID!
+	member_name: String
+	e_posta: String
+	psw: String
+	created_at: AWSTimestamp
+	status: String
+}
+
+input MembershipInput @aws_cognito_user_pools {
+	member_name: String
+	e_posta: String
+	psw: String
+	status: String
+}
+
+type MessageResponse {
+	message: String
+	status: String
+}
+
+type Price {
+	id: ID!
+	price_no: Int
+	market_id: ID
+	product_id: ID
+}
+
+input PriceInput {
+	price_no: Int
+	market_id: ID
+	product_id: ID
+}
+
+type Product {
+	id: ID!
+	name: String
+	price: Int
+	brand_id: ID
+	weight_id: String
+	members_id: String
+	created_at: String
+	weight_amount: Int
+	photo: String
+}
+
+input ProductInput {
+	name: String
+	created_at: String
+}
+
+type Quarter {
+	id: ID!
+	quarter_name: String
+	district_id: ID
+	districts: [District]
+	floornumbers: [Floornumber]
+}
+
+input QuarterInput {
+	quarter_name: String
+	district_id: ID
+}
+
+type Subcategory @aws_cognito_user_pools {
+	id: ID!
+	price_id: ID
+	brand_id: ID
+}
+
+input SubcategoryInput {
+	price_id: ID
+	brand_id: ID
+}
+
+type Weight {
+	id: ID!
+	type: String
+}
+
+input WeightInput {
+	type: String
+}
+
+type prd {
+	id: ID
+	name: String
+}
+
+input prdinput {
+	name: String
+	price: Int
+	brand_id: ID
+	created_at: String
+	weight_amount: Int
+	photo: String
+}
+
+type Mutation {
+	CreateCity(input: CityInput): City
+	CreateMembership(input: MembershipInput): MessageResponse
+	UpdateMembership(input: MembershipInput): MessageResponse
+	Createprd(input: prdinput): prd
+	Deleteprd(input: prdinput): prd
+	Updateprd(input: prdinput): prd
+	DeleteMembership(id: ID!): MessageResponse
+	CreateCityDistrict(input: DistrictInput): District
+	CreateQuarter(input: QuarterInput): Quarter
+	CreateFloornumber(input: BrandInput): Brand
+	CreateBrand(input: BrandInput): Brand
+	CreateProduct(input: ProductInput): Product
+	DeleteProduct(input: ProductInput): Product
+	UpdateProduct(input: ProductInput): Product
+	CreateCategory(input: CategoryInput): Category
+	UpdateCategory(input: CategoryInput): Category
+	DeleteCategory(input: CategoryInput): Category
+	CreateMarket(input: MarketInput): Market
+	UpdateMarket(input: MarketInput): Market
+	DeleteMarket(input: MarketInput): Market
+	CreatePrice(input: PriceInput): Price
+	UpdatePrice(input: PriceInput): Price
+	DeletePrice(input: PriceInput): Price
+	CreateAdmin(input: AdminInput): Admin
+	UpdateAdmin(input: AdminInput): Admin
+	DeleteAdmin(input: AdminInput): Admin
+	CreateWeight(input: WeightInput): Weight
+	UpdateWeight(id: ID!, input: WeightInput): Weight
+	DeleteWeight(id: ID!): Weight
+}
+
+type Query {
+	getAllMemberships(id: ID): [Membership]
+	getAllCities(id: ID): [City]
+	getAllDistricts(id: ID): [District]
+	getAllQuarters(id: ID): [Quarter]
+	getAllFloornumbers(id: ID): [Floornumber]
+	getAllSubcategories(id: ID): [Subcategory]
+	getAllMarketsid(id: ID): [Price]
+	getAllPrices(id: ID): [Price]
+	getAllAdmin(id: ID): [Admin]
+	getWeightById(id: ID!): Weight
+	getAllWeights(id: ID): [Weight]
+	getAllprd(id: ID): [prd]
+}
+
+schema {
+	query: Query
+	mutation: Mutation
+}
