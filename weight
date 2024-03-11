@@ -1,0 +1,115 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+import uuid
+import sys 
+
+dynamodb = boto3.resource('dynamodb')
+weight_table = dynamodb.Table('weight')
+
+def handle_error(exception):
+    return {
+        "statusCode": 500,
+        "body": json.dumps({'error': str(exception)})
+    }
+
+def create_weight(data):
+    try:
+        data['id'] = str(uuid.uuid4())
+        response = weight_table.put_item(Item=data)
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Weight has been successfully created.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+def get_weight(weight_id):
+    try:
+        response = weight_table.get_item(
+            Key={'id': weight_id}
+        )
+        weight_data = response.get('Item', {})
+        return weight_data
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info()) 
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+        
+def delete_weight(weight_id):
+    try:
+       
+        weight_id_value = weight_id
+
+        # Get the weight using the provided 'id'
+        weight_data = get_weight(weight_id_value)
+
+        if not weight_data:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Weight not found'})
+            }
+
+        # Delete the weight using the 'id' obtained from get_weight
+        response_delete = weight_table.delete_item(
+            Key={'id': weight_id_value}
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Weight has been deleted successfully'})
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info()) 
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+def update_weight(weight_data):
+    try:
+        if 'weight' not in weight_data:
+            raise Exception("Invalid data. 'weight' field is required.")
+
+        response = weight_table.update_item(
+            Key={'id': weight_data['id']},
+            UpdateExpression="set weight=:d",
+            ExpressionAttributeValues={':d': weight_data['weight']},
+            ReturnValues="UPDATED_NEW"
+        )
+
+        if 'Attributes' not in response or 'weight' not in response['Attributes']:
+            raise Exception("Weight update failed. Check the provided 'id'.")
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Weight has been updated successfully.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+            
+            if operation == 'create_weight':
+                return create_weight(event['arguments']['input'])
+            elif operation == 'get_weight':
+                return get_weight(event['arguments']['input'])
+            elif operation == 'delete_weight':
+                return delete_weight(event['arguments']['input']["id"])
+            elif operation == 'update_weight':
+                return update_weight(event['arguments']['input'])
+            else:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({'error': 'Invalid Transaction'})
+                }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info()) 
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
