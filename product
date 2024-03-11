@@ -1,0 +1,713 @@
+import json
+import uuid
+import sys
+from datetime import datetime
+import boto3
+from botocore.exceptions import ClientError
+import base64
+from decimal import Decimal
+from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr
+
+
+
+
+dynamodb = boto3.resource('dynamodb')
+product_table = dynamodb.Table('product')
+weight_type_table = dynamodb.Table('weight')
+product_has_membership_table = dynamodb.Table('product_has_membership')
+membership_table = dynamodb.Table('membership')
+brand_table = dynamodb.Table('brand')
+prices_table = dynamodb.Table('price')
+city_table = boto3.resource('dynamodb').Table('city')  
+district_table = boto3.resource('dynamodb').Table('district')  
+quarter_table = boto3.resource('dynamodb').Table('quarter')  
+percentage_increase_table = dynamodb.Table('yuzdelik_artis')
+s3 = boto3.client('s3')
+
+
+
+def handle_error(exception):
+    
+    error_message = str(exception)
+    print(f"Error: {error_message}")
+    return {
+        "statusCode": 500,
+        "Message": "error" + error_message
+    }
+
+
+
+def get_district_by_id(district_id):
+    try:
+        response = district_table.get_item(
+            Key={'id': district_id}
+        )
+        district = response.get('Item', {})
+        return district
+    except Exception as e:
+        return handle_error(e)
+
+def get_city_by_id(city_id):
+    try:
+        response = city_table.get_item(
+            Key={'id': city_id}
+        )
+        city = response.get('Item', {})
+        return city
+    except Exception as e:
+        return handle_error(e)
+
+
+def get_quarte_by_id(quarter_id):
+    try:
+        response = quarter_table.get_item(
+            Key={'id': quarter_id}
+        )
+        quarter = response.get('Item', {})
+        return quarter
+    except Exception as e:
+        return handle_error(e)
+
+
+
+        
+def update_product_and_membership(data):
+    try:
+        # Gelen verilerde "id" olup olmadığını kontrol et
+        if 'id' not in data:
+            return {
+                "statusCode": 400,
+                "Message": 'Error: "id" field is required for updating.'
+            }
+
+        # Diğer güncellenmesi istenen alanları kontrol et ve güncelle
+        update_expression = 'SET '
+        expression_attribute_names = {}
+        expression_attribute_values = {}
+
+        # Güncellenecek alanları belirle
+        update_fields = ['name', 'price','amount' 'brand_name', 'weight_type', 'member_name', 'weight_amount', 'photo']
+
+        # Güncelleme ifadesini oluştur
+        for field in update_fields:
+            if field in data:
+                update_expression += f'#{field} = :{field}, '
+                expression_attribute_names[f'#{field}'] = field
+                expression_attribute_values[f':{field}'] = data[field]
+
+        # Güncelleme ifadesinin sonundaki gereksiz virgülü kaldır
+        update_expression = update_expression.rstrip(', ')
+
+        # Product tablosunu güncelle
+        product_has_membership_table.update_item(
+            Key={'id': data['id']},
+            UpdateExpression=update_expression,
+            ExpressionAttributeNames=expression_attribute_names,
+            ExpressionAttributeValues=expression_attribute_values
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": 'Product and membership updated successfully.'
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+        
+def delete_product_and_membership(product_id):
+    try:
+        response_product = product_table.delete_item(
+            Key={'id': product_id}
+        )
+
+        response_membership = product_has_membership_table.delete_item(
+            Key={'id': product_id}
+        )
+
+        print("Response Product:", response_product)
+        print("Response Membership:", response_membership)
+
+        return {
+            "statusCode": 200,
+            "Message": "Product and membership deleted successfully."
+        }
+    except Exception as e:
+        print("Error:", str(e))
+        return {
+            "statusCode": 500,
+            "Message": f"Error: {str(e)}"
+        }
+
+def get_or_create_weight_id(weight_type, weight_name, weight_amount):
+    try:
+        response = weight_type_table.get_item(
+            Key={'id': weight_type}
+        )
+        weight = response.get('Item', {})
+        if not weight:
+            # If weight_type does not exist, create a new one
+            weight_id = str(uuid.uuid4())
+            weight_type_table.put_item(
+                Item={
+                    'id': weight_id,
+                    'weight_type': weight_type,
+                    'weight_name': weight_name,
+                    'weight_amount': weight_amount
+                }
+            )
+            return weight_id
+        else:
+            return weight.get('id') if 'id' in weight else None
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+def get_city_id():
+    try:
+        response = city_table.get_item(
+            
+            Key={'id':city_id}           )
+            
+        city=response.get('Item',{})
+        if not city:
+            city_id : str(uuid.uuid4())
+            city_table.put_item(
+                Item ={
+                'id':city_id}
+           )
+        return city.get('id') if 'id' in city else None
+    except Exception as e :
+        exc_type,exc_obj,exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error:{}-{}-{}'.format(str(e),exc_type,exc_tb.tb_lineno))
+        return handle_error(e)
+        
+        
+def get_district_id(district_table, district_id):
+    try:
+        response = district_table.get_item(
+            Key={'id': district_id}
+        )
+        
+        district = response.get('Item', {})
+        
+        if not district:
+            district_id = str(uuid.uuid4())
+            district_table.put_item(
+                Item={
+                    'id': district_id
+                }
+            )
+            
+        return district.get('id') if 'id' in district else None
+    
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {} - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+            
+        
+def get_or_create_brand_id(brand_name):
+    response = brand_table.scan(FilterExpression=boto3.dynamodb.conditions.Attr('brand_name').eq(brand_name))
+
+    if response.get('Items'):
+        return response['Items'][0]['id']
+    else:
+        brand_id = str(uuid.uuid4())
+        brand_table.put_item(Item={'id': brand_id, 'brand_name': brand_name})
+        return brand_id
+
+def get_or_create_member_id(member_name):
+    try:
+        response = membership_table.get_item(
+            Key={'id': member_name}
+        )
+        membership = response.get('Item', {})
+        if not membership:
+            # If member does not exist, create a new one
+            member_id = str(uuid.uuid4())
+            membership_table.put_item(
+                Item={
+                    'id': member_id,
+                    'member_name': member_name
+                }
+            )
+            return member_id
+        else:
+            return membership.get('id') if 'id' in membership else None
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+
+def get_product_by_id(product_id):
+    try:
+        response = product_table.get_item(
+            Key={'id': product_id}
+        )
+        product = response.get('Item', {})
+        return product
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+
+def delete_product(product_id):
+    try:
+        response = product_table.delete_item(
+            Key={'id': product_id}
+        )
+
+        print(f"Delete response: {response}")
+
+        return {
+            "statusCode": 200,
+            "Message": "Product deleted successfully."
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+        
+        
+def get_or_create_weight_id(weight_type):
+    try:
+        response = weight_type_table.get_item(
+            Key={'id': weight_type}
+        )
+        weight = response.get('Item', {})
+        if not weight:
+            # If weight_type does not exist, create a new one
+            weight_id = str(uuid.uuid4())
+            weight_type_table.put_item(
+                Item={
+                    'id': weight_id,
+                    'weight_type': weight_type,
+                    
+                    'weight_amount': weight_amount  # Burada bir varsayılan değer belirleyin
+                }
+            )
+            return weight_id
+        else:
+            return weight.get('id') if 'id' in weight else None
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+def get_or_create_city_id(city_id):
+    try:
+        response = city_table.get_item(
+            Key={'id': city_id}
+        )
+        city = response.get('Item', {})
+        if not city:
+            city_id = str(uuid.uuid4())
+            city_table.put_item(
+                Item={
+                    'id': city_id
+                }
+            )
+        return city.get('id') if 'id' in city else None
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error:{}-{}-{}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+
+def create_product_and_membership(data):
+    try:
+        required_fields = ['amount', 'brand_id', 'created_at', 'members_id', 'name', 'photo', 'price', 'weight_amount', 'weight_type', 'city_id', 'district_id', 'quarter_id']
+
+        if not all(field in data for field in required_fields):
+            return {
+                "statusCode": 400,
+                "Message": 'Hata: Gerekli alanlar eksik: {}'.format(', '.join(set(required_fields) - set(data.keys())))
+            }
+
+        product_id = str(uuid.uuid4())
+
+        data['id'] = product_id
+        data['created_at'] = datetime.now().isoformat()
+
+        # Marka, ağırlık türü ve üye kimliklerini alın veya oluşturun
+        brand_id = get_or_create_brand_id(data['brand_id'])
+        weight_type = data['weight_type']
+
+        # Ağırlık türünü ve miktarını kontrol et
+        weight_id = get_or_create_weight_id(weight_type)
+        member_id = get_or_create_member_id(data['members_id'])
+
+        # Şehir, ilçe ve mahalle kimliklerini alın veya oluşturun
+        city_id = get_or_create_city_id(data['city_id'])
+        district_id = get_or_create_district_id(data['district_id'])
+        quarter_id = get_or_create_quarter_id(data['quarter_id'])
+
+        # Product tablosuna sadece isim ve id bilgisini ekleyin
+        product_table.put_item(
+            Item={
+                'id': product_id,
+                'name': data['name'],
+                'created_at': data['created_at']
+            }
+        )
+
+        # Product Has Membership tablosuna veriyi ekleyin
+        product_has_membership_table = dynamodb.Table('product_has_membership')
+        product_has_membership_table.put_item(
+            Item={
+                'amount': data['amount'],
+                'brand_id': brand_id,
+                'created_at': data['created_at'],
+                'members_id': member_id,
+                'product_id': product_id,
+                'photo': data['photo'],
+                'price': data['price'],
+                'weight_amount': data['weight_amount'],
+                'weight_type': weight_type,
+                'city_id': city_id,
+                'district_id': district_id,
+                'quarter_id': quarter_id
+            }
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": 'Ürün ve üyelik başarıyla eklendi.'
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Hata: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+
+        return {
+            "statusCode": 500,
+            "Message": f"Hata: {str(e)}"
+        }
+
+
+def update_product(data):
+    try:
+       
+        if 'id' not in data:
+            return {
+                "statusCode": 400,
+                "Message": 'Error: "id" field is required for updating.'
+            }
+
+        data['updated_at'] = datetime.now().isoformat()
+
+        response = product_table.put_item(Item=data)
+
+        return {
+            "statusCode": 200,
+            "Message": 'Product updated successfully.'
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+
+
+def delete_product_and_membership(product_id):
+    try:
+        response_product = product_table.delete_item(
+            Key={'id': product_id}
+        )
+
+        response_membership = product_has_membership_table.delete_item(
+            Key={'id': product_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "Message": "Ürün ve üyeliği başarıyla silindi."
+        }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "Message": f"Hata: {str(e)}"
+        }
+
+
+def load_data_from_s3():
+    try:
+        bucket_name = 'ugulama'
+        file_key = 'markett.json'
+
+        response = s3.get_object(Bucket=bucket_name, Key=file_key)
+        json_data = response['Body'].read().decode('utf-8')
+        market_data = json.loads(json_data)
+
+        existing_brands = {}
+
+        for data in market_data:
+            product_data = data.get('CATEGORY4')
+
+            if product_data in existing_brands:
+                brand_id = existing_brands[product_data]
+            else:
+                brand_data = data.get('BRAND')
+                brand_id = str(uuid.uuid4())
+                brand_created_at = datetime.now().isoformat()
+                brand_item = {
+                    'id': brand_id,
+                    'brand_name': brand_data,
+                    'created_at': brand_created_at,
+                }
+                try:
+                    brand_table.put_item(Item=brand_item)
+                except Exception as brand_error:
+                    print(f"Error adding brand: {brand_error}")
+
+                existing_brands[product_data] = brand_id
+
+            product_id = str(uuid.uuid4())
+
+            product_item = {
+                'id': product_id,
+                'name': product_data,
+                'brand_id': brand_id,
+                'created_at': datetime.now().isoformat()
+            }
+
+            try:
+                product_table.put_item(Item=product_item)
+            except Exception as product_error:
+                print(f"Error adding product: {product_error}")
+
+        return {
+            "statusCode": 200,
+            "Message": "Data added successfully."
+        }
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        print(f"General error: {e}")
+        return handle_error(e)
+        
+
+def calculate_percentage_increase(data):
+    try:
+        city_id = data.get('city_id')
+        district_id = data.get('district_id')
+        quarter_id = data.get('quarter_id')
+        members_id = data.get('members_id')
+        product_id = data.get('product_id')
+        current_price = data.get('current_price')
+        operation_type = data.get('operation_type')
+
+  
+        product_prices = get_product_prices(product_id, city_id, district_id, quarter_id, members_id)
+
+        if not product_prices:
+            return "Ürün fiyatları bulunamadı."
+
+        
+        for price in product_prices:
+            price_date = datetime.strptime(price['created_at'], '%Y-%m-%dT%H:%M:%S.%f').date()
+            days_difference = (datetime.now().date() - price_date).days
+            print("dif:",days_difference) 
+            if operation_type == 'weekly' and days_difference <= 7: 
+                print("current",current_price)
+                print("price",price['price']) 
+                percentage_increase = ((current_price - price['price']) / price['price']) * 100
+                save_percentage_increase(product_id, city_id, district_id, quarter_id, members_id, percentage_increase)
+            elif operation_type == 'monthly' and days_difference >= 30:
+                percentage_increase = ((current_price - price['price']) / price['price']) * 100
+                save_percentage_increase(product_id, city_id, district_id, quarter_id, members_id, percentage_increase)
+            elif operation_type == 'yearly' and days_difference >= 365:
+                percentage_increase = ((current_price - price['price']) / price['price']) * 100
+                save_percentage_increase(product_id, city_id, district_id, quarter_id, members_id, percentage_increase)
+
+        return "Yüzdelik artış hesaplaması ve kaydetme tamamlandı."
+    except Exception as e:
+        print(f"Bir hata oluştu: {str(e)}")
+        return str(e)
+
+def get_product_prices(product_id, city_id, district_id, quarter_id, members_id):
+    try:
+        
+        response = prices_table.scan()
+
+        # Decimal 
+        for price in response['Items']:
+            if 'current_price' in price:
+                price['current_price'] = Decimal(str(price['current_price']))
+        
+        return response['Items']
+    except Exception as e:
+        # Hata yönetimini buraya ekleyin
+        print(f"Bir hata oluştu: {str(e)}")
+        return []
+        
+def save_percentage_increase(product_id, city_id, district_id, quarter_id, members_id, percentage_increase):
+    try:
+        uid = str(uuid.uuid4())
+
+        # Yüzdesel artışı iki ondalık haneyle sınırla
+        percentage_increase = Decimal(str(percentage_increase)).quantize(Decimal('0.00'))
+
+        percentage_increase_table.put_item(
+            Item={
+                'id': uid,
+                'product_id': product_id,
+                'city_id': city_id,
+                'district_id': district_id,
+                'quarter_id': quarter_id,
+                'members_id': members_id,
+                'percentage_increase': percentage_increase,
+                'created_at': datetime.now().isoformat()
+            }
+        )
+        print("Yüzdelik artış başarıyla kaydedildi.")
+    except Exception as e:
+        print(f"Hata: Yüzdelik artış kaydedilirken bir hata oluştu - {str(e)}")
+
+        
+def save_percentage_increase(product_id, city_id, district_id, quarter_id, members_id, percentage_increase):
+    try:
+        uid = str(uuid.uuid4())
+
+        # Şehirsel yüzdesel artışı kaydet
+        city_uid = f"{uid}_city"
+        percentage_increase_table.put_item(
+            Item={
+                'id': city_uid,
+                'product_id': product_id,
+                'city_id': city_id,
+                'district_id': None,  # Şehirsel yüzdesel artışta ilçe yok
+                'quarter_id': None,  # Şehirsel yüzdesel artışta mahalle yok
+                'members_id': members_id,
+                'percentage_increase': Decimal(str(percentage_increase)),
+                'created_at': datetime.now().isoformat()
+            }
+        )
+
+        # İlçesel yüzdesel artışı kaydet
+        district_uid = f"{uid}_district"
+        percentage_increase_table.put_item(
+            Item={
+                'id': district_uid,
+                'product_id': product_id,
+                'city_id': city_id,
+                'district_id': district_id,
+                'quarter_id': None,  # İlçesel yüzdesel artışta mahalle yok
+                'members_id': members_id,
+                'percentage_increase': Decimal(str(percentage_increase)),
+                'created_at': datetime.now().isoformat()
+            }
+        )
+
+        # Mahallesel yüzdesel artışı kaydet
+        quarter_uid = f"{uid}_quarter"
+        percentage_increase_table.put_item(
+            Item={
+                'id': quarter_uid,
+                'product_id': product_id,
+                'city_id': city_id,
+                'district_id': district_id,
+                'quarter_id': quarter_id,
+                'members_id': members_id,
+                'percentage_increase': Decimal(str(percentage_increase)),
+                'created_at': datetime.now().isoformat()
+            }
+        )
+
+        print("Yüzdelik artışlar başarıyla kaydedildi.")
+    except Exception as e:
+        print(f"Hata: Yüzdelik artış kaydedilirken bir hata oluştu - {str(e)}")
+
+
+def get_product_prices(product_id, city_id, district_id, quarter_id, members_id):
+    
+    try:
+        # Mocked response for testing, replace this with your actual DynamoDB scan operation
+        response = prices_table.scan()
+
+
+        # Decimal 
+        for price in response['Items']:
+            if 'current_price' in price:
+                price['current_price'] = Decimal(str(price['current_price']))
+        
+        return response['Items']
+    except Exception as e:
+        # Hata yönetimini buraya ekleyin
+        print(f"Bir hata oluştu: {str(e)}")
+        return []
+
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+
+            # "to" kelimesinin kontrolü
+            if 'to' in event['info']: 
+                to_value = event['info']['to']
+                # Burada to_value kullanılabilir
+                print(f"to_value: {to_value}")
+                
+            if operation == 'create_product':
+                return create_product(event['arguments']["input"])
+            elif operation == 'get_product_by_id':
+                return get_product_by_id(event['arguments']["id"])
+            elif operation == 'delete_product':
+                return delete_product(event['arguments']["id"])
+            elif operation == 'create_product_and_membership':
+                return create_product_and_membership(event['arguments']["input"])
+            elif operation == 'update_product':
+                result = update_product(event['arguments']["input"])
+                print(event['arguments'])
+                return result
+            elif operation == 'update_product_and_membership':
+                result = update_product_and_membership(event['arguments']["input"])
+                return result
+            elif operation == 'delete_product_and_membership':
+                result = delete_product_and_membership(event['arguments']["input"])
+                return  result
+            elif operation == 'upload_photo_to_s3':
+                return upload_photo_to_s3(event, context)
+            elif operation == 'get_or_create_weight_id':
+                return get_or_create_weight_id(event['arguments']["input"])
+            elif operation == 'calculate_percentage_increase':
+                return calculate_percentage_increase(event['arguments']["input"])
+            elif operation == 'get_product_prices':
+                return get_product_prices(event['arguments']["input"])
+
+
+            elif operation == 'load_data_from_s3':
+                return load_data_from_s3()
+            else:
+                return {
+                    "statusCode": 400,
+                    "Message": 'error' + 'Geçersiz işlem.'
+                }
+        else:
+            return {
+                "statusCode": 400,
+                "body": 'error' + 'Geçersiz olay yapısı'
+            }
+            
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print(sys.exc_info())
+        print('Error: {} - {}  - {}'.format(str(e), exc_type, exc_tb.tb_lineno))
+        return handle_error(e)
+        return response
