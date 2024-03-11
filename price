@@ -1,0 +1,208 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+from datetime import datetime
+import uuid
+from decimal import Decimal
+from datetime import datetime, timedelta
+
+dynamodb = boto3.resource('dynamodb')
+price_table=dynamodb.Table('price')
+product_table=dynamodb.Table('product')
+market_table=dynamodb.Table('market') 
+
+def handle_error(error):
+    print(f"An error occurred: {str(error)}")
+    return {
+        "statusCode": 500,
+        "body": json.dumps({'error': 'Internal Server Error'})
+    }
+
+
+def create_price(data):
+    try:
+        data['id'] = str(uuid.uuid4())
+        data['created_at'] = datetime.now().isoformat()
+
+        market_id = data.get('market_id')
+        product_id = data.get('product_id')
+
+        market_response = market_table.get_item(
+            Key={'id': market_id}
+        )
+        product_response = product_table.get_item(
+            Key={'id': product_id}
+        )
+
+        if not market_response.get('Item') or not product_response.get('Item'):
+            return {
+                "statusCode": 400,
+                "Message": "The specified market or product could not be found."
+            }
+
+        # Convert any floating-point values to Decimal
+        data['price'] = Decimal(str(data['price']))
+
+        response = price_table.put_item(Item=data)
+
+        return {
+            "statusCode": 200,
+            "Message": "Price added successfully."
+        }
+    except Exception as e:
+        return handle_error(e)
+
+def get_product_prices(product_id, city_id, district_id, quarter_id, members_id):
+    try:
+        # Mocked response for testing, replace this with your actual DynamoDB scan operation
+        response = prices_table.scan()
+
+        # Veritabanı 
+        print(response) 
+
+        # Decimal 
+        for price in response['Items']:
+            price['current_price'] = Decimal(str(price['current_price']))
+        
+        return response['Items']
+    except Exception as e:
+        # Hata yönetimini buraya ekleyin
+        print(f"Bir hata oluştu: {str(e)}")
+        return []
+
+        
+
+def update_price(data):
+    try:
+        price_id = data.get('id')
+
+        # Güncelleme verisi
+        update_expression = "set "
+        expression_attribute_values = {}
+
+        if 'price_no' in data:
+            update_expression += "price_no = :pn, "
+            expression_attribute_values[':pn'] = data['price_no']
+
+        if 'market_id' in data:
+            update_expression += "market_id = :mid, "
+            expression_attribute_values[':mid'] = data['market_id']
+
+        if 'product_id' in data:
+            update_expression += "product_id = :pid, "
+            expression_attribute_values[':pid'] = data['product_id']
+
+        update_expression = update_expression.rstrip(", ")
+
+        # Veriyi güncelle
+        response = price_table.update_item(
+            Key={'id': price_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_attribute_values,
+            ReturnValues="UPDATED_NEW"
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Fiyat başarıyla güncellendi.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+def delete_price(price_data):
+    try:
+        # Extract 'id' from the input
+        price_id_value = price_data
+
+        # Check if 'id' is provided
+        if not price_id_value:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Price ID is required for deletion'})
+            }
+
+        # Delete the price using the 'id'
+        response_delete = price_table.delete_item(
+            Key={'id': price_id_value}
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Price has been deleted successfully'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+def load_data_from_s3():
+    # S3 bucket ve dosya adı
+    bucket_name = 'ugulama'
+    file_key = 'price.json'
+
+    try:
+        # S3'den JSON dosyasını al
+        s3 = boto3.client('s3')
+        response = s3.get_object(Bucket=bucket_name, Key=file_key)
+        json_data = response['Body'].read().decode('utf-8-sig')
+        market_data = json.loads(json_data)
+
+        # DynamoDB tablo adları
+        price_table_name = 'price'
+        market_table_name = 'market'
+        subcategory_table_name = 'subcategory'
+
+        dynamodb = boto3.resource('dynamodb')
+        global price_table, market_table, subcategory_table
+        price_table = dynamodb.Table(price_table_name)
+        market_table = dynamodb.Table(market_table_name)
+        subcategory_table = dynamodb.Table(subcategory_table_name)
+
+       
+        for data in market_data:
+           
+            price_data = data.get('PRICE')
+           
+            price_data = Decimal(str(price_data))
+            price_id = str(uuid.uuid4())
+            price_created_at = datetime.now().isoformat()
+            price_item = {
+                'id': price_id,
+                'created_at': price_created_at,
+                'PriceData': price_data,
+              
+            }
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Data has been successfully loaded.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+        
+        
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+            if operation == 'create_price':
+                return create_price(event['arguments']["input"])
+            elif operation == 'get_price':
+                return get_price(event['arguments']["id"])
+            elif operation == 'update_price':
+                return update_price(event['arguments']["input"])
+            elif operation == 'delete_price':
+                return delete_price(event['arguments']["input"]["id"])  
+            elif operation == 'load_data_from_s3':
+                return load_data_from_s3()
+            
+            else:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({'error': 'Geçersiz işlem.'})
+                }
+        else:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Geçersiz olay yapısı'})
+            }
+    except Exception as e:
+        return handle_error(e)
