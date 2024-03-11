@@ -1,0 +1,125 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+import sys
+from datetime import datetime
+import uuid
+import hashlib
+
+
+dynamodb = boto3.resource('dynamodb')
+admin_table = dynamodb.Table('admin')
+
+def handle_error(exception):
+    return {
+        "statusCode": 500,
+        "body": json.dumps({'error': str(exception)})
+    }
+
+
+def hash_password(password):
+    # Şifreyi SHA-256 algoritmasıyla hashle
+    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+    return hashed_password
+
+def create_admin(data):
+    try:
+        if 'password' not in data or not data['password']:
+            raise ValueError("Invalid password: Password is required")
+
+        # Şifre minimum uzunluğunu kontrol et ( en az 8 karakter)
+        if len(data['password']) < 8:
+            raise ValueError("Invalid password: Password must be at least 8 characters long")
+
+        # Diğer güvenlik kontrolleri yapılabilir
+
+        # Şifreyi hashle
+        hashed_password = hash_password(data['password'])
+        
+        # Diğer işlemler
+        data['id'] = str(uuid.uuid4())
+        data['password'] = hashed_password
+        
+        response = admin_table.put_item(Item=data)
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'admin has been added successfully..'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+        
+def get_admin_by_id(data):
+    try:
+        response = admin_table.get_item(
+            Key={'id': data}
+        )
+        city = response.get('Item', {})
+        return city
+    except Exception as e:
+        return handle_error(e)
+        
+def update_admin(data):
+    try:
+        response = admin_table.update_item(
+            Key={'id': data['id']},  # Change admin_data to data
+            UpdateExpression="set admin_name=:c",
+            ExpressionAttributeValues={':c': data['admin_name']},
+            ReturnValues="UPDATED_NEW"
+        )
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'admin has been updated successfully.'})
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+def delete_admin(data):
+    try:
+        admin_id = data.get('id')
+        # İlgili admini çek
+        admin = get_admin_by_id(admin_id)
+        if not admin:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Admin not found'})
+            }
+
+        # Admini sil
+        response_admin = admin_table.delete_item(
+            Key={'id': admin_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({'message': 'Admin has been deleted successfully'})
+        }
+    except Exception as e:
+        return handle_error(e)
+
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+            if operation == 'create_admin':
+                return create_admin(event['arguments']["input"])
+            elif operation == 'update_admin':
+                return update_admin(event['arguments']["input"])
+            elif operation == 'delete_admin':
+                return delete_admin(event['arguments']["input"])
+            elif operation == 'get_admin_by_id':
+                return get_admin_by_id(event['arguments']["input"])
+         
+            else:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({'error': 'Invalid transaction.'})
+                }
+        else:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({'error': 'Invalid event structure'})
+            }
+    except Exception as e:
+        return handle_error(e)
