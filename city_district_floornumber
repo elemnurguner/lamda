@@ -1,0 +1,480 @@
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
+import uuid
+
+s3 = boto3.client('s3')
+city_table = boto3.resource('dynamodb').Table('city')  
+district_table = boto3.resource('dynamodb').Table('district')  
+quarter_table = boto3.resource('dynamodb').Table('quarter')  
+
+dynamodb = boto3.resource('dynamodb')
+
+def handle_error(exception):
+    return {
+        "statusCode": 500,
+        "Message": json.dumps({'error': str(exception)})
+    }
+
+
+def create_city(data):
+    try:
+        data['id'] = str(uuid.uuid4())
+     
+        response = city_table.put_item(Item=data)
+        return {
+            "statusCode": 200,
+            "Message": 'City  has been added successfully..'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+def create_district(data):
+    try:
+        data['id']=str(uuid.uuid4())
+        response=district_table.put_item(Item=data)
+        return{
+            "statusCode":200,
+            "Message": 'district has been added successfully.. .'
+            
+        }
+    except Exception as e :
+        return handle_error(e)
+        
+
+def create_quarter(data):
+    try:
+        data['id']=str(uuid.uuid4())
+        response = quarter_table.put_item(Item=data)
+        return{
+            "statusCode":200,
+            "Message":'quarter has been added successfully..'
+            
+        }
+    except Exception as e :
+        return handle_error(e)
+        
+
+def create_floornumber(data):
+    try:
+        data['id']= str(uuid.uuid4)
+        return {
+            "statusCode":200,
+            "Message":'Street number has been added successfully.'
+        
+        }
+    except Exception as e :
+        return handle_error(e)
+        
+        
+def delete_city(data):
+    try:
+        city_id = data.get('id')
+        
+        # İlgili şehri çek
+        city = get_city_by_id(city_id)
+        if not city:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+ 'City not found'
+            }
+
+        # İlgili şehrin bağlı olduğu ilçeleri çek ve şehirden çıkar
+        districts = city.get('districts', [])
+        for district_id in districts:
+            district = get_district_by_id(district_id)
+            if district:
+                city['districts'].remove(district_id)
+                update_city(city)
+
+                # İlgili ilçenin bağlı olduğu mahalleleri çek ve ilçeden çıkar
+                quarters = district.get('quarters', [])
+                for quarter_id in quarters:
+                    quarter = get_quarter_by_id(quarter_id)
+                    if quarter:
+                        district['quarters'].remove(quarter_id)
+                        update_district(district)
+
+                        # İlgili mahalledeki kat numaralarını sil
+                        response_floornumbers = floornumber_table.query(
+                            IndexName='quarter_id-index',
+                            KeyConditionExpression=Key('quarter_id').eq(quarter_id)
+                        )
+                        floornumbers = response_floornumbers.get('Items', [])
+
+                        for floornumber in floornumbers:
+                            response_floornumber = floornumber_table.delete_item(
+                                Key={'id': floornumber['id']}
+                            )
+
+                        # İlgili mahalleyi sil
+                        response_quarter = quarter_table.delete_item(
+                            Key={'id': quarter_id}
+                        )
+
+                # İlgili ilçeyi sil
+                response_district = district_table.delete_item(
+                    Key={'id': district_id}
+                )
+
+        # İlgili şehri sil
+        response_city = city_table.delete_item(
+            Key={'id': city_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "Message":  'City and related items deleted successfully'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+     
+        
+        
+def delete_district(data):
+    try:
+        district_id = data.get('id')
+        
+        # İlgili ilçeyi çek
+        district = get_district_by_id(district_id)
+        if not district:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+'District not found'
+            }
+
+        # İlgili ilçeyi bağlı olduğu şehirden çıkar
+        city_id = district.get('city_id')
+        if city_id:
+            city = get_city_by_id(city_id)
+            if city:
+                city['districts'].remove(district_id)
+                update_city(city)
+        # İlgili ilçeyi bağlı olduğu mahallelerden çıkar
+        quarters = district.get('quarters', [])
+        for quarter_id in quarters:
+            quarter = get_quarter_by_id(quarter_id)
+            if quarter:
+                district['quarters'].remove(quarter_id)
+                update_district(district)
+
+                # İlgili mahalledeki kat numaralarını sil
+                response_floornumbers = floornumber_table.query(
+                    IndexName='quarter_id-index',
+                    KeyConditionExpression=Key('quarter_id').eq(quarter_id)
+                )
+                floornumbers = response_floornumbers.get('Items', [])
+
+                for floornumber in floornumbers:
+                    response_floornumber = floornumber_table.delete_item(
+                        Key={'id': floornumber['id']}
+                    )
+
+                # İlgili mahalleyi sil
+                response_quarter = quarter_table.delete_item(
+                    Key={'id': quarter_id}
+                )
+
+        # İlgili ilçeyi sil
+        response_district = district_table.delete_item(
+            Key={'id': district_id}
+        )
+
+        return {
+            "statusCode": 200,
+            "Message":  'District and related items deleted successfully'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+       
+def delete_floornumber(data):
+    try:
+        floornumber_id = data.get('id')
+        
+        # İlgili sokak no yu çek
+        floornumber = get_floornumber_by_id(floornumber_id)
+        if not district:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+'Floornumber not found'
+            }
+
+         # İlgili sokaknosunu  bağlı olduğu caddeden çıkar
+        floornumber = floornumber.get('floornumber', [])
+        for floornumber_id in floornumber:
+            floornumber = get_floornumber_by_id(floornumber_id)
+            if quarter:
+                district['quarters'].remove(quarter_id)
+                update_floornumber(floornumber)
+
+                # İlgili mahalledeki kat numaralarını sil
+                response_floornumbers = floornumber_table.query(
+                    IndexName='quarter_id-index',
+                    KeyConditionExpression=Key('quarter_id').eq(quarter_id)
+                )
+                floornumbers = response_floornumbers.get('Items', [])
+
+                for floornumber in floornumbers:
+                    response_floornumber = floornumber_table.delete_item(
+                        Key={'id': floornumber['id']}
+                    )
+        return {
+            "statusCode": 200,
+            "Message":'District and related items deleted successfully'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+
+def delete_quarter(data):
+    try:
+        response_quarter = quarter_table.delete_item(
+            Key={'id': data['id']}
+        )
+        district_id = data.get('district_id')
+        
+        if district_id:
+            district = get_district_by_id(district_id)
+            if district:
+                district['quarters'].remove(data['id'])
+                update_district(district)
+
+        response_floornumbers = floornumber_table.query(
+            IndexName='quarter_id-index',
+            KeyConditionExpression=Key('quarter_id').eq(data['id'])
+        )
+        floornumbers = response_floornumbers.get('Items', [])
+
+        for floornumber in floornumbers:
+            response_floornumber = floornumber_table.delete_item(
+                Key={'id': floornumber['id']}
+            )
+        return {
+            "statusCode": 200,
+            "Message":  '  quarter has been successfully deleted.'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+
+def delete_quarter_and_related_floor_numbers(quarter_id):
+    try:
+        # Mahalleyi quarter_table'dan sil
+        response_quarter = quarter_table.delete_item(
+            Key={'id': quarter_id}
+        )
+
+        district_id = get_district_id_by_quarter_id(quarter_id)
+
+        if district_id:
+            # İlgili mahalleyi ilgili ilçeden kaldır ve güncelle
+            district = get_district_by_id(district_id)
+            if district:
+                district['quarters'].remove(quarter_id)
+                update_district(district)
+
+        # Mahalleye ait kat numaralarını bul
+        response_floornumbers = floornumber_table.query(
+            IndexName='quarter_id-index',
+            KeyConditionExpression=Key('quarter_id').eq(quarter_id)
+        )
+        floornumbers = response_floornumbers.get('Items', [])
+
+        # Her bir kat numarasını sil
+        for floornumber in floornumbers:
+            response_floornumber = floornumber_table.delete_item(
+                Key={'id': floornumber['id']}
+            )
+
+        return {
+            "statusCode": 200,
+            "Message":  'floornumber has been deleted successfully.'
+        }
+        
+    except Exception as e:
+        return handle_error(e)
+        
+        
+    
+def update_district(data):
+    try:
+        response = district_table.update_item(
+            Key={'id': data['id']},
+            UpdateExpression="set district_name=:n",
+            ExpressionAttributeValues={':n': data['district_name']},
+            ReturnValues="UPDATED_NEW"
+        )
+        return {
+            "statusCode": 200,
+            "Message":  'district has been updated successfully.'
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+def update_quarter(data):
+    try:
+        response = quarter_table.update_item(
+            Key={'id': data['id']},
+            UpdateExpression="set quarter_name=:n",
+            ExpressionAttributeValues={':n': data['quarter_name']},
+            ReturnValues="UPDATED_NEW"
+        )
+        return {
+            "statusCode": 200,
+            "Message": 'quarter has  been updated successfully.'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+def get_district_by_id(district_id):
+    try:
+        response = district_table.get_item(
+            Key={'id': district_id}
+        )
+        district = response.get('Item', {})
+        return district
+    except Exception as e:
+        return handle_error(e)
+
+def get_city_by_id(city_id):
+    try:
+        response = city_table.get_item(
+            Key={'id': city_id}
+        )
+        city = response.get('Item', {})
+        return city
+    except Exception as e:
+        return handle_error(e)
+
+
+def get_quarte_by_id(quarter_id):
+    try:
+        response = quarter_table.get_item(
+            Key={'id': quarter_id}
+        )
+        quarter = response.get('Item', {})
+        return quarter
+    except Exception as e:
+        return handle_error(e)
+
+
+
+def update_city(city_data):
+    try:
+        response = city_table.update_item(
+            Key={'id': city_data['id']},
+            UpdateExpression="set city_name=:c",#burda yazdigimiz test kisminda ayni olmalı.
+            ExpressionAttributeValues={':c': city_data['city_name']},#test ederken  buraya dikkat et  diğer taraftada  aynı olması lazım ..
+            ReturnValues="UPDATED_NEW"  
+        )
+        return {
+            "statusCode": 200,
+            "Message": 'city has been updated  successfully.'
+        }
+    except Exception as e:
+        return handle_error(e)
+
+
+def update_floornumber(quarter_data):
+    try:
+        response = quarter_table.update_item(
+            Key={'id': quarter_data['id']},
+            UpdateExpression="set districts=:d, floornumbers=:f",
+            ExpressionAttributeValues={':d': quarter_data['districts'], ':f': quarter_data['floornumbers']},
+            ReturnValues="UPDATED_NEW"
+        )
+        return {
+            "statusCode": 200,
+            "Message": 'floornumber has been updated successfully.'
+        }
+    except Exception as e:
+        return handle_error(e)
+        
+
+def load_data_to_dynamodb():
+    try:
+        bucket_name = 'ugulama'
+        file_key = 'data.json'
+        city_id = 'city_id'
+        neighborhood_id = 'neighborhood_id'
+
+        # S3'den dosyayı alma
+        response = s3.get_object(Bucket=bucket_name, Key=file_key)
+        content = response['Body'].read().decode('utf-8')
+
+        data = json.loads(content)
+        district_id = 0 
+        county_id = 0
+
+        # DynamoDB'ye ekleme işlemi
+        for key, item in enumerate(data):
+            # city_table için ekleme
+            city_id = key + 1
+            city_table.put_item(Item={
+                'id': str(city_id),
+                'name': item['name'],
+            })
+
+            if "counties" in item:
+                for key1, item1 in enumerate(item["counties"]):
+                    # county_table için ekleme
+                    county_id = county_id + 1
+                    district_table.put_item(Item={
+                        'id': str(county_id), 
+                        'name': item1['name'],
+                        'city_id': str(city_id),
+                    })
+
+                    if "districts" in item1 and "neighborhoods" in item1["districts"][0]:
+                        lambda_client = boto3.client('lambda')
+                        response = lambda_client.invoke(
+                            FunctionName='membership',
+                            InvocationType='Event',
+                            Payload=json.dumps({
+                                "to": "neighborhoods",
+                                "body": item1["districts"][0]["neighborhoods"]
+                            })
+                        )
+
+        return {
+            "statusCode": 200,
+            "Message":  'data added successfully.'
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "Message": 'error' + str(e)
+        }
+
+def lambda_handler(event, context):
+    try:
+        if 'info' in event and 'fieldName' in event["info"] and 'arguments' in event:
+            operation = event['info']['fieldName']
+            
+            if operation == 'load_data_to_dynamodb':
+                # load_data_to_dynamodb fonksiyonunu çağır
+                result = load_data_to_dynamodb()
+                return result
+            elif operation == 'create_product_category':
+                return create_product_category(event['arguments']["input"])
+            
+            else:
+                return {
+                    "statusCode": 400,
+                    "Message": 'error' + 'Geçersiz işlem.'
+                }
+        else:
+            return {
+                "statusCode": 400,
+                "Message": 'error'+ 'Geçersiz olay yapısı'
+            }
+    except Exception as e:
+        return handle_error(e)
